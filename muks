@@ -1,14 +1,11 @@
-#!/usr/bin/env bash
+#!/usr/bin/env zsh
 
-
-#TODO 1: install missing packages
 #TODO 2: grab host usb drive from system_profiler and lsusb
 #TODO 3: find a better way to stop qemu vm
-#TODO 4: find a better way to determine when qemu vm has successfully booted
 #TODO 5: document code
 #TODO 6: upload qemu vm to github releases from where it will be downloaded with wget in init phase
 #TODO 7: actually get the unencrypted LUKS drive mounted from the qemu vm to the host
-MUKS_VER="0.1-alpha"
+MUKS_VER="0.2-alpha"
 
 help_msg(){
 	printf "muks $MUKS_VER\nusage: sudo muks {init|start|stop|help}\n\nCommands:\n\tinit: Downloads the required packages and images for LUKS compatibility.\n\tstart: Starts the muks daemon, waits for the user to plug in the LUKS drive and mounts it.\n\tstop: Unmounts LUKS drive and stops muks daemon.\n\thelp: Displays this message.\n\nAuthor: Andrei C. Datcu <andrei@datcuandrei.com>\n"
@@ -36,9 +33,18 @@ check_reqs(){
 		printf 'There are packages which are not installed.\nWould you like to install them? [default: n]: '
 		read yn
 		reply=$(echo $yn | tr '[:upper:]' '[:lower:]')
-		if [ "$reply" == "y" ]; then
-			printf 'Installing\n'
-			#TODO 1 install missing packages
+		if [[ "$reply" == "y" ]]; then
+			missing_pkgs=$(which ${reqs[@]} 2>&1 | grep 'not found' | awk '{print $1}' | tr '\n' ' ' | xargs)
+			brew='brew'
+			if grep -q "$brew" <<< "$missing_pkgs"; then
+				printf 'One of the missing packages is Homebrew, will install Homebrew using the official script.\nThe script explains what it will do and then pauses before it does it.\nContinuing in 10'
+				for (( i=9; i>0; i-- )); do
+					sleep 1 && printf ", $i"
+				done
+				printf '\nStarting...\n'
+				sudo -u ${SUDO_USER:-$USER} /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+			fi
+			sudo -u ${SUDO_USER:-$USER} brew install $(echo $missing_pkgs)
 			exit 0
 		else
 			printf 'Input other than Y|y...\nExiting.\n'
@@ -60,7 +66,7 @@ start(){
 	
 	export SSHPASS=muks
 	opts=(
-  		-smp 2 -m 256 # 2 vCPUs 256mb RAM
+  		-smp 1 -m 128 
 		#-boot d -cdrom alpinesetup.iso
   		-drive file=alpine.qcow2,if=virtio
   		-netdev user,id=n1,hostfwd=tcp::2222-:22 # for SSH access, port 2222 will be used 
@@ -72,11 +78,13 @@ start(){
 
 	screen -dmS muks qemu-system-x86_64 ${opts[@]}
 	printf 'Starting muks VM'
-	#TODO 4
-	until sshpass -e ssh -Tp 2222 root@localhost "ip addr | grep inet | head -n 3 | tail -n 1 | xargs | cut -d '/' -f1 | cut -d ' ' -f2 | xargs"; do
+	touch /var/tmp/muks.log
+	until grep -q "booted" <<< "$(cat /var/tmp/muks.log)" ; do
+		sshpass -e ssh -o StrictHostKeyChecking=accept-new -Tp 2222 root@localhost "echo booted" > /var/tmp/muks.log 2>&1
 		printf '.'
-		sleep 3
+		sleep 2
 	done
+	rm -rf /var/tmp/muks.log
 	printf "muks VM started.\n"	
 
 	#TODO 7
@@ -87,7 +95,7 @@ stop(){
 	printf 'Stopping muks VM'
 	until screen -XS muks quit && pkill -9 qemu; do
 		printf '.'
-		sleep 3
+		sleep 2
 	done
 	printf 'muks VM stopped.\n'
 }
