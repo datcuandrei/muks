@@ -5,10 +5,10 @@
 #TODO 5: document code
 #TODO 6: upload qemu vm to github releases from where it will be downloaded with wget in init phase
 #TODO 7: actually get the unencrypted LUKS drive mounted from the qemu vm to the host
-MUKS_VER="0.2-alpha"
+MUKS_VER="0.2.1-alpha"
 
 help_msg(){
-	printf "muks $MUKS_VER\nusage: sudo muks {init|start|stop|help}\n\nCommands:\n\tinit: Downloads the required packages and images for LUKS compatibility.\n\tstart: Starts the muks daemon, waits for the user to plug in the LUKS drive and mounts it.\n\tstop: Unmounts LUKS drive and stops muks daemon.\n\thelp: Displays this message.\n\nAuthor: Andrei C. Datcu <andrei@datcuandrei.com>\n"
+	printf "muks $MUKS_VER\nusage: sudo muks {init|start|stop|shell|help}\n\nCommands:\n\tinit: Downloads the required packages and images for LUKS compatibility.\n\tstart: Starts the muks daemon, waits for the user to plug in the LUKS drive and mounts it.\n\tstop: Unmounts LUKS drive and stops muks daemon.\n\tshell: Start an interactive shell with the muks VM.\n\thelp: Displays this message.\n\nAuthor: Andrei C. Datcu <andrei@datcuandrei.com>\n"
 }
 
 if [ "$EUID" -ne 0 ]; then
@@ -105,6 +105,15 @@ case "$1" in
 		#TODO 6
 		check_reqs
 		;;
+	shell)
+		export SSHPASS=muks
+		printf "Please do not use poweroff or reboot.\nTo exit the shell session, use the exit command.\nStarting session in 3"
+		for (( i=2; i>0; i-- )); do
+			sleep 1 && printf ", $i"
+		done
+		echo ""
+		sshpass -e ssh -o StrictHostKeyChecking=accept-new -p 2222 root@localhost
+		;;;	
 	start)
 		start
 		;;
