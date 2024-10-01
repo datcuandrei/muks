@@ -1,0 +1,114 @@
+#!/usr/bin/env bash
+
+
+#TODO 1: install missing packages
+#TODO 2: grab host usb drive from system_profiler and lsusb
+#TODO 3: find a better way to stop qemu vm
+#TODO 4: find a better way to determine when qemu vm has successfully booted
+#TODO 5: document code
+#TODO 6: upload qemu vm to github releases from where it will be downloaded with wget in init phase
+#TODO 7: actually get the unencrypted LUKS drive mounted from the qemu vm to the host
+MUKS_VER="0.1-alpha"
+
+help_msg(){
+	printf "muks $MUKS_VER\nusage: sudo muks {init|start|stop|help}\n\nCommands:\n\tinit: Downloads the required packages and images for LUKS compatibility.\n\tstart: Starts the muks daemon, waits for the user to plug in the LUKS drive and mounts it.\n\tstop: Unmounts LUKS drive and stops muks daemon.\n\thelp: Displays this message.\n\nAuthor: Andrei C. Datcu <andrei@datcuandrei.com>\n"
+}
+
+if [ "$EUID" -ne 0 ]; then
+	help_msg
+	exit 1
+fi
+
+check_reqs(){
+	printf 'Checking if all reqirements are met.\n'
+	reqs=(
+		brew 
+		sshpass 
+		wget 
+		qemu-system-x86_64 
+		screen
+		lsusb
+	)
+
+	which ${reqs[@]} > /dev/null
+	exit_code=$?
+	if [ "$exit_code" -ne 0 ]; then
+		printf 'There are packages which are not installed.\nWould you like to install them? [default: n]: '
+		read yn
+		reply=$(echo $yn | tr '[:upper:]' '[:lower:]')
+		if [ "$reply" == "y" ]; then
+			printf 'Installing\n'
+			#TODO 1 install missing packages
+			exit 0
+		else
+			printf 'Input other than Y|y...\nExiting.\n'
+			exit 1
+		fi
+	else
+		printf 'All requirements are met.\n'
+	fi
+}
+
+
+grab_qemu_ip(){
+	sshpass -e ssh -Tp 2222 root@localhost << EOL
+	ip addr | grep inet | head -n 3 | tail -n 1 | xargs | cut -d '/' -f1 | cut -d ' ' -f2 | xargs
+EOL
+}
+
+start(){
+	
+	export SSHPASS=muks
+	opts=(
+  		-smp 2 -m 256 # 2 vCPUs 256mb RAM
+		#-boot d -cdrom alpinesetup.iso
+  		-drive file=alpine.qcow2,if=virtio
+  		-netdev user,id=n1,hostfwd=tcp::2222-:22 # for SSH access, port 2222 will be used 
+  		-device virtio-net,netdev=n1
+  		#TODO 2 
+		# -usb -device qemu-xhci,p2=15 -device usb-host,hostbus="$1",hostaddr="$2" # to bypass USB 3.0 limit in QEMU to 4 USBs, using p2
+		-nographic
+	)
+
+	screen -dmS muks qemu-system-x86_64 ${opts[@]}
+	printf 'Starting muks VM'
+	#TODO 4
+	until sshpass -e ssh -Tp 2222 root@localhost "ip addr | grep inet | head -n 3 | tail -n 1 | xargs | cut -d '/' -f1 | cut -d ' ' -f2 | xargs"; do
+		printf '.'
+		sleep 3
+	done
+	printf "muks VM started.\n"	
+
+	#TODO 7
+}
+
+stop(){
+	#TODO 3
+	printf 'Stopping muks VM'
+	until screen -XS muks quit && pkill -9 qemu; do
+		printf '.'
+		sleep 3
+	done
+	printf 'muks VM stopped.\n'
+}
+
+case "$1" in
+	init)
+		#TODO 6
+		check_reqs
+		;;
+	start)
+		start
+		;;
+	stop)
+		stop
+		;;
+	help)
+		help_msg
+		exit 0
+		;;
+	*)
+		help_msg
+		exit 1
+		;;
+esac
